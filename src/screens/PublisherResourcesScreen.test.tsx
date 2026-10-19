@@ -225,11 +225,9 @@ describe("PublisherResourcesScreen - Register on-chain", () => {
     // Trigger success callback
     fireEvent.press(screen.getByTestId("mock-register-success-btn"));
 
-    // Modal is closed
-    await waitFor(() => expect(screen.queryByTestId("register-modal")).toBeNull());
-
-    // Toast message is displayed
-    expect(screen.getByText("Registration successful!")).toBeTruthy();
+    // Toast message is displayed; the modal stays on its success step until closed
+    expect(await screen.findByText("Registration successful!")).toBeTruthy();
+    expect(screen.getByTestId("register-modal")).toBeTruthy();
 
     // Card status is updated to registered
     expect(screen.getByLabelText("On-chain: registered")).toBeTruthy();

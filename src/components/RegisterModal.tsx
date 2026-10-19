@@ -20,7 +20,7 @@ interface RegisterModalProps {
   visible: boolean;
   resource: Resource | null;
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, txHash: string) => void;
   onError: (message: string) => void;
 }
 
@@ -152,7 +152,7 @@ export function RegisterModal({
       setTxHash(hash);
 
       setStep("success");
-      onSuccess("Resource registered on-chain successfully!");
+      onSuccess("Resource registered on-chain successfully!", hash);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Registration failed";
       setErrorMessage(message);

@@ -424,9 +424,10 @@ export function PublisherResourcesScreen() {
   /**
    * Issue #204: Called when on-chain registration completes successfully.
    * Updates the resource in local state to registered with the tx hash and shows a toast.
+   * The modal stays open on its success step (explorer link) until the user closes it.
    */
   const handleRegisterSuccess = useCallback(
-    (message: string, txHash?: string) => {
+    (message: string, txHash: string) => {
       const registeredId = registerResource?.id;
       if (registeredId) {
         setResources((prev) =>
@@ -435,14 +436,13 @@ export function PublisherResourcesScreen() {
               ? {
                   ...r,
                   onchainStatus: "registered",
-                  ...(txHash ? { onchainTxHash: txHash } : {}),
+                  onchainTxHash: txHash,
                 }
               : r
           )
         );
       }
-      setToast(message || "Resource registered on-chain successfully!");
-      setRegisterResource(null);
+      setToast(message);
     },
     [registerResource]
   );
