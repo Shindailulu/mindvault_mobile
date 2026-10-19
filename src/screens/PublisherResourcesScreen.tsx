@@ -25,6 +25,7 @@ import type { Resource } from "../types";
 import type { RootStackParamList } from "../navigation";
 import { spacing } from "../theme";
 import { useAppTheme } from "../theme/ThemeProvider";
+import { RegisterModal } from "../components/RegisterModal";
 import { ResourceCard } from "../components/ResourceCard";
 import { SkeletonCard } from "../components/SkeletonCard";
 import { TransferOwnershipModal } from "../components/TransferOwnershipModal";
@@ -56,6 +57,8 @@ export function PublisherResourcesScreen() {
   const [showHelp, setShowHelp] = useState(false);
   /** Issue #66: the resource currently open in the TransferOwnershipModal, or null */
   const [transferResource, setTransferResource] = useState<Resource | null>(null);
+  /** Issue #204: the resource currently open in the RegisterModal, or null */
+  const [registerResource, setRegisterResource] = useState<Resource | null>(null);
 
   const styles = useMemo(() => {
     return StyleSheet.create({
@@ -268,7 +271,7 @@ export function PublisherResourcesScreen() {
         fontWeight: "500",
       },
     });
-  }, [colors, shared, typography]);
+  }, [colors]);
 
   useEffect(() => {
     if (!toast) return;
@@ -362,7 +365,7 @@ export function PublisherResourcesScreen() {
       setSearch("");
       setError(null);
       setToast("Logged out successfully");
-    } catch (err) {
+    } catch {
       setError("Failed to logout");
     }
   };
@@ -410,6 +413,43 @@ export function PublisherResourcesScreen() {
     },
     [transferResource]
   );
+
+  /**
+   * Issue #204: Open the RegisterModal for the given resource.
+   */
+  const handleOpenRegister = useCallback((resource: Resource) => {
+    setRegisterResource(resource);
+  }, []);
+
+  /**
+   * Issue #204: Called when on-chain registration completes successfully.
+   * Updates the resource in local state to registered with the tx hash and shows a toast.
+   */
+  const handleRegisterSuccess = useCallback(
+    (message: string, txHash?: string) => {
+      const registeredId = registerResource?.id;
+      if (registeredId) {
+        setResources((prev) =>
+          prev.map((r) =>
+            r.id === registeredId
+              ? {
+                  ...r,
+                  onchainStatus: "registered",
+                  ...(txHash ? { onchainTxHash: txHash } : {}),
+                }
+              : r
+          )
+        );
+      }
+      setToast(message || "Resource registered on-chain successfully!");
+      setRegisterResource(null);
+    },
+    [registerResource]
+  );
+
+  const handleRegisterError = useCallback((message: string) => {
+    setToast(message);
+  }, []);
 
   const filteredResources = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -582,6 +622,7 @@ export function PublisherResourcesScreen() {
             editablePrice={true}
             onPriceUpdated={handlePriceUpdated}
             onTransferOwnership={handleOpenTransfer}
+            onRegister={handleOpenRegister}
           />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -613,6 +654,16 @@ export function PublisherResourcesScreen() {
           visible={true}
           onClose={() => setTransferResource(null)}
           onSuccess={handleTransferSuccess}
+        />
+      ) : null}
+
+      {registerResource ? (
+        <RegisterModal
+          resource={registerResource}
+          visible={true}
+          onClose={() => setRegisterResource(null)}
+          onSuccess={handleRegisterSuccess}
+          onError={handleRegisterError}
         />
       ) : null}
     </SafeAreaView>

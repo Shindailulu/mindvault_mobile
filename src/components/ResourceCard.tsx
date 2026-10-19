@@ -132,6 +132,10 @@ export function ResourceCard({
           backgroundColor: colors.neutralBg,
           marginTop: 8,
         },
+        registerButton: {
+          backgroundColor: colors.neutralBg,
+          marginTop: 8,
+        },
       }),
     [colors]
   );
@@ -189,6 +193,11 @@ export function ResourceCard({
       ? "Submitting transaction…"
       : null;
 
+  const canRegister =
+    Boolean(onRegister) &&
+    resource.verificationStatus === "verified" &&
+    (resource.onchainStatus === "none" || resource.onchainStatus === "failed");
+
   return (
     <View style={shared.card}>
       <Text style={typography.cardTitle}>{resource.title}</Text>
@@ -200,6 +209,14 @@ export function ResourceCard({
       <Text style={typography.caption}>
         Owner: {shortenAddress(resource.walletAddress)}
       </Text>
+      {resource.onchainTxHash ? (
+        <Text
+          style={typography.caption}
+          accessibilityLabel={`Transaction: ${resource.onchainTxHash}`}
+        >
+          Tx: {shortenAddress(resource.onchainTxHash)}
+        </Text>
+      ) : null}
 
       <View style={styles.badges}>
         <View style={[shared.badge, { backgroundColor: colors.neutralBg }]}>
@@ -251,7 +268,7 @@ export function ResourceCard({
         </View>
       </View>
 
-      {editablePrice ? (
+      {editablePrice || canRegister || onTransferOwnership ? (
         editing ? (
           <View style={styles.editor}>
             <TextInput
@@ -352,19 +369,33 @@ export function ResourceCard({
           </View>
         ) : (
           <View style={styles.publisherActions}>
-            <Pressable
-              onPress={() => {
-                setNewPrice(resource.price);
-                setPriceTouched(false);
-                setEditing(true);
-              }}
-              style={[shared.button, styles.editButton]}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit price for ${resource.title}`}
-              accessibilityHint="Opens the price editor for this resource"
-            >
-              <Text style={shared.buttonText}>Edit price</Text>
-            </Pressable>
+            {editablePrice ? (
+              <Pressable
+                onPress={() => {
+                  setNewPrice(resource.price);
+                  setPriceTouched(false);
+                  setEditing(true);
+                }}
+                style={[shared.button, styles.editButton]}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit price for ${resource.title}`}
+                accessibilityHint="Opens the price editor for this resource"
+              >
+                <Text style={shared.buttonText}>Edit price</Text>
+              </Pressable>
+            ) : null}
+
+            {canRegister ? (
+              <Pressable
+                onPress={() => onRegister?.(resource)}
+                style={[shared.button, dynamicStyles.registerButton]}
+                accessibilityRole="button"
+                accessibilityLabel={`Register ${resource.title} on-chain`}
+                accessibilityHint="Opens the on-chain registration flow for this resource"
+              >
+                <Text style={shared.buttonText}>Register on-chain</Text>
+              </Pressable>
+            ) : null}
 
             {onTransferOwnership ? (
               <Pressable
