@@ -19,7 +19,18 @@ export const DEFAULT_NETWORK_PASSPHRASE =
 
 export { getDefaultApiBaseUrl };
 
-export function buildQuery(filters?: CatalogFilters): string {
+export interface CatalogResponse {
+  items: Resource[];
+  total: number;
+  nextOffset: number | null;
+}
+
+export type FetchCatalogParams = CatalogFilters & {
+  limit?: number;
+  offset?: number;
+};
+
+export function buildQuery(filters?: FetchCatalogParams): string {
   if (!filters) return "";
 
   const params = new URLSearchParams();
@@ -38,6 +49,13 @@ export function buildQuery(filters?: CatalogFilters): string {
   if (!range.isInvalid) {
     if (range.min !== null) params.set("minPrice", String(range.min));
     if (range.max !== null) params.set("maxPrice", String(range.max));
+  }
+
+  if (filters.limit !== undefined && filters.limit !== null && !isNaN(filters.limit)) {
+    params.set("limit", String(filters.limit));
+  }
+  if (filters.offset !== undefined && filters.offset !== null && !isNaN(filters.offset)) {
+    params.set("offset", String(filters.offset));
   }
 
   const qs = params.toString();
@@ -61,12 +79,56 @@ export function getApiBaseUrl(): string {
   return apiBaseUrl;
 }
 
-export async function fetchCatalog(filters?: CatalogFilters): Promise<Resource[]> {
-  const res = await fetch(`${apiBaseUrl}/resources${buildQuery(filters)}`);
+export async function fetchCatalog(params?: FetchCatalogParams): Promise<CatalogResponse> {
+  const res = await fetch(`${apiBaseUrl}/resources${buildQuery(params)}`);
   if (!res.ok) {
     throw new Error(await extractApiErrorMessage(res, "Failed to fetch catalog"));
   }
-  return res.json();
+  const rawData = await res.json();
+  const items: Resource[] = Array.isArray(rawData) ? rawData : (rawData?.items ?? []);
+
+  const totalHeader = res.headers?.get
+    ? (res.headers.get("x-total-count") ?? res.headers.get("X-Total-Count"))
+    : null;
+  const nextOffsetHeader = res.headers?.get
+    ? (res.headers.get("x-next-offset") ?? res.headers.get("X-Next-Offset"))
+    : null;
+
+  let total: number;
+  if (
+    totalHeader !== null &&
+    totalHeader !== undefined &&
+    totalHeader !== "" &&
+    !isNaN(Number(totalHeader))
+  ) {
+    total = Number(totalHeader);
+  } else if (!Array.isArray(rawData) && typeof rawData?.total === "number") {
+    total = rawData.total;
+  } else {
+    total = items.length;
+  }
+
+  let nextOffset: number | null = null;
+  if (
+    nextOffsetHeader !== null &&
+    nextOffsetHeader !== undefined &&
+    nextOffsetHeader !== "" &&
+    nextOffsetHeader !== "null" &&
+    !isNaN(Number(nextOffsetHeader))
+  ) {
+    nextOffset = Number(nextOffsetHeader);
+  } else if (
+    !Array.isArray(rawData) &&
+    (typeof rawData?.nextOffset === "number" || rawData?.nextOffset === null)
+  ) {
+    nextOffset = rawData.nextOffset;
+  }
+
+  return {
+    items,
+    total,
+    nextOffset,
+  };
 }
 
 export class ResourceFetchError extends Error {

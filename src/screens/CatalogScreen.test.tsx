@@ -44,7 +44,7 @@ function makeResource(id: string, title: string) {
 
 beforeEach(() => {
   jest.useFakeTimers();
-  mockedFetchCatalog.mockResolvedValue([]);
+  mockedFetchCatalog.mockResolvedValue({ items: [], total: 0, nextOffset: null });
   mockedFetchRegistryStatus.mockResolvedValue({ resourceCount: 0 });
   mockedGetApiBaseUrl.mockReturnValue("http://localhost:4000");
   mockedGetItem.mockResolvedValue(null);
@@ -257,3 +257,102 @@ describe("CatalogScreen saved filter validation", () => {
     expect(getByLabelText("Search resources").props.value).toBe("stellar");
   });
 });
+
+describe("CatalogScreen infinite scroll pagination", () => {
+  it("appends the next page de-duplicated by id and updates 'Showing X of Y'", async () => {
+    const page1 = [makeResource("r1", "Resource 1"), makeResource("r2", "Resource 2")];
+    const page2 = [makeResource("r2", "Resource 2 Duplicate"), makeResource("r3", "Resource 3")];
+
+    mockedFetchCatalog
+      .mockResolvedValueOnce({ items: page1, total: 3, nextOffset: 2 })
+      .mockResolvedValueOnce({ items: page2, total: 3, nextOffset: null });
+
+    const screen = renderCatalog();
+
+    await waitFor(() => expect(screen.getByText("Resource 1")).toBeTruthy());
+    expect(screen.getByText("Resource 2")).toBeTruthy();
+    expect(screen.getByText("Showing 2 of 3 resources")).toBeTruthy();
+
+    // Trigger onEndReached
+    const flatList = screen.UNSAFE_getByType(require("react-native").FlatList);
+    await act(async () => {
+      flatList.props.onEndReached();
+    });
+
+    await waitFor(() => expect(screen.getByText("Resource 3")).toBeTruthy());
+    expect(mockedFetchCatalog).toHaveBeenCalledWith({ offset: 2 });
+    expect(screen.getByText("Showing 3 of 3 resources")).toBeTruthy();
+
+    // Subsequent onEndReached does nothing because nextOffset is null
+    mockedFetchCatalog.mockClear();
+    await act(async () => {
+      flatList.props.onEndReached();
+    });
+    expect(mockedFetchCatalog).not.toHaveBeenCalled();
+  });
+
+  it("shows an inline retry when next-page load fails and retains loaded items", async () => {
+    const page1 = [makeResource("r1", "Resource 1")];
+    mockedFetchCatalog
+      .mockResolvedValueOnce({ items: page1, total: 2, nextOffset: 1 })
+      .mockRejectedValueOnce(new Error("Network connection lost"));
+
+    const screen = renderCatalog();
+
+    await waitFor(() => expect(screen.getByText("Resource 1")).toBeTruthy());
+
+    const flatList = screen.UNSAFE_getByType(require("react-native").FlatList);
+    await act(async () => {
+      flatList.props.onEndReached();
+    });
+
+    // Error is displayed inline with retry button, and initial item is still present
+    await waitFor(() => expect(screen.getByText("Network connection lost")).toBeTruthy());
+    expect(screen.getByText("Resource 1")).toBeTruthy();
+    const retryButton = screen.getByLabelText("Retry loading more resources");
+    expect(retryButton).toBeTruthy();
+
+    // Successful retry
+    mockedFetchCatalog.mockResolvedValueOnce({
+      items: [makeResource("r2", "Resource 2")],
+      total: 2,
+      nextOffset: null,
+    });
+
+    fireEvent.press(retryButton);
+
+    await waitFor(() => expect(screen.getByText("Resource 2")).toBeTruthy());
+    expect(screen.queryByText("Network connection lost")).toBeNull();
+    expect(screen.getByText("Showing 2 of 2 resources")).toBeTruthy();
+  });
+
+  it("resets to page 1 when changing filters or searching", async () => {
+    mockedFetchCatalog
+      .mockResolvedValueOnce({
+        items: [makeResource("r1", "Item 1"), makeResource("r2", "Item 2")],
+        total: 10,
+        nextOffset: 2,
+      })
+      .mockResolvedValueOnce({
+        items: [makeResource("r3", "Searched Item")],
+        total: 1,
+        nextOffset: null,
+      });
+
+    const screen = renderCatalog();
+    await waitFor(() => expect(screen.getByText("Item 1")).toBeTruthy());
+
+    // Search input change resets to page 1
+    const searchInput = screen.getByLabelText("Search resources");
+    fireEvent.changeText(searchInput, "search term");
+
+    act(() => {
+      jest.advanceTimersByTime(350);
+    });
+
+    await waitFor(() => expect(screen.getByText("Searched Item")).toBeTruthy());
+    expect(screen.queryByText("Item 1")).toBeNull();
+    expect(screen.getByText("Showing 1 of 1 resource")).toBeTruthy();
+  });
+});
+

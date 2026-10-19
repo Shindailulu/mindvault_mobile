@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -326,6 +327,32 @@ function createStyles(colors: ThemeColors) {
       fontSize: 14,
       fontWeight: "500",
     },
+    footerContainer: {
+      paddingVertical: spacing.md,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+    },
+    footerErrorRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    footerErrorText: {
+      fontSize: 13,
+      color: colors.danger,
+    },
+    footerRetryButton: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: colors.dangerBg,
+    },
+    footerRetryText: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.danger,
+    },
   });
 }
 
@@ -335,6 +362,10 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
   const filtersRestored = useRef(false);
 
   const [resources, setResources] = useState<Resource[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [registryCount, setRegistryCount] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -428,7 +459,7 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
     }
 
     try {
-      const [catalog, registryResult] = await Promise.all([
+      const [catalogResult, registryResult] = await Promise.all([
         fetchCatalog(Object.keys(filters).length > 0 ? filters : undefined),
         // The registry count is supplementary: a failure must not fail the
         // catalog load, it only hides the count.
@@ -437,7 +468,18 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
 
       if (requestId !== requestIdRef.current) return;
 
-      setResources(catalog);
+      const items = Array.isArray(catalogResult) ? catalogResult : (catalogResult?.items ?? []);
+      const total = Array.isArray(catalogResult)
+        ? catalogResult.length
+        : typeof catalogResult?.total === "number"
+        ? catalogResult.total
+        : items.length;
+      const next = Array.isArray(catalogResult) ? null : (catalogResult?.nextOffset ?? null);
+
+      setResources(items);
+      setTotalCount(total);
+      setNextOffset(next);
+      setLoadMoreError(null);
       setRegistryFailed(registryResult === null);
       setRegistryCount(registryResult?.resourceCount ?? null);
       setLastUpdatedAt(new Date());
@@ -456,6 +498,65 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
       }
     }
   }, [debouncedSearch, verification, resourceType, debouncedMinPrice, debouncedMaxPrice, sort, isRestoring]);
+
+  const currentFilters = useMemo(() => {
+    const filters: CatalogFilters = {};
+    if (debouncedSearch.trim()) filters.search = debouncedSearch.trim();
+    if (verification !== DEFAULT_VERIFICATION) {
+      filters.verificationStatus = verification;
+    }
+    if (resourceType !== DEFAULT_RESOURCE_TYPE) {
+      filters.resourceType = resourceType;
+    }
+    if (sort !== DEFAULT_SORT) filters.sort = sort;
+    const range = parsePriceRange(debouncedMinPrice, debouncedMaxPrice);
+    if (!range.isInvalid) {
+      if (range.min !== null) filters.minPrice = String(range.min);
+      if (range.max !== null) filters.maxPrice = String(range.max);
+    }
+    return filters;
+  }, [debouncedSearch, verification, resourceType, debouncedMinPrice, debouncedMaxPrice, sort]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMore || nextOffset === null) {
+      return;
+    }
+
+    setLoadingMore(true);
+    setLoadMoreError(null);
+
+    try {
+      const response = await fetchCatalog({
+        ...currentFilters,
+        offset: nextOffset,
+      });
+
+      const newItems = Array.isArray(response) ? response : (response?.items ?? []);
+      const total = Array.isArray(response)
+        ? response.length
+        : typeof response?.total === "number"
+        ? response.total
+        : 0;
+      const next = Array.isArray(response) ? null : (response?.nextOffset ?? null);
+
+      setResources((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const filteredNewItems = newItems.filter((item) => !existingIds.has(item.id));
+        return [...prev, ...filteredNewItems];
+      });
+
+      if (!Array.isArray(response) && typeof response?.total === "number") {
+        setTotalCount(total);
+      }
+      setNextOffset(next);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to load more resources.";
+      setLoadMoreError(message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loading, loadingMore, nextOffset, currentFilters]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
@@ -501,6 +602,36 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
     () => parsePriceRange(minPrice, maxPrice),
     [minPrice, maxPrice],
   );
+
+  function renderFooter() {
+    if (loadingMore) {
+      return (
+        <View
+          style={styles.footerContainer}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Loading more resources"
+        >
+          <ActivityIndicator color={colors.primary} size="small" />
+        </View>
+      );
+    }
+    if (loadMoreError) {
+      return (
+        <View style={[styles.footerContainer, styles.footerErrorRow]}>
+          <Text style={styles.footerErrorText}>{loadMoreError}</Text>
+          <Pressable
+            onPress={() => void loadMore()}
+            style={styles.footerRetryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading more resources"
+          >
+            <Text style={styles.footerRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return null;
+  }
 
   function renderEmpty() {
     if (loading) return null;
@@ -729,9 +860,8 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
               {!loading && resources.length > 0 ? (
                 <View style={styles.resultsRow}>
                   <Text style={styles.resultsCount}>
-                    Showing {resources.length}{" "}
-                    resource
-                    {resources.length === 1 ? "" : "s"}
+                    Showing {resources.length} of {totalCount || resources.length} resource
+                    {(totalCount || resources.length) === 1 ? "" : "s"}
                   </Text>
                   <Pressable
                     onPress={clearFilters}
@@ -776,6 +906,9 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={renderEmpty}
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={renderFooter}
       />
 
       <Pressable

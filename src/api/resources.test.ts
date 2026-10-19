@@ -1,5 +1,6 @@
 import {
   buildQuery,
+  fetchCatalog,
   fetchPublisherResources,
   fetchResource,
   getApiBaseUrl,
@@ -68,6 +69,82 @@ describe('buildQuery', () => {
 
   it('omits search when it is empty string', () => {
     expect(buildQuery({ search: '' })).toBe('');
+  });
+
+  it('includes limit and offset pagination parameters when provided', () => {
+    expect(buildQuery({ limit: 20, offset: 40 })).toBe('?limit=20&offset=40');
+    expect(buildQuery({ search: 'ai', limit: 10, offset: 0 })).toBe(
+      '?search=ai&limit=10&offset=0'
+    );
+  });
+});
+
+describe('fetchCatalog', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('requests /resources with query parameters and parses pagination headers', async () => {
+    const mockItems = [{ id: 'res-1', title: 'Test 1' }, { id: 'res-2', title: 'Test 2' }];
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockItems,
+      headers: {
+        get: (header: string) => {
+          const lower = header.toLowerCase();
+          if (lower === 'x-total-count') return '45';
+          if (lower === 'x-next-offset') return '20';
+          return null;
+        },
+      },
+    });
+    global.fetch = fetchMock as unknown as typeof global.fetch;
+
+    const result = await fetchCatalog({ limit: 20, offset: 0 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${getApiBaseUrl()}/resources?limit=20&offset=0`
+    );
+    expect(result).toEqual({
+      items: mockItems,
+      total: 45,
+      nextOffset: 20,
+    });
+  });
+
+  it('sets nextOffset to null when X-Next-Offset header is missing or empty', async () => {
+    const mockItems = [{ id: 'res-1', title: 'Test 1' }];
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockItems,
+      headers: {
+        get: (header: string) => {
+          if (header.toLowerCase() === 'x-total-count') return '1';
+          return null;
+        },
+      },
+    }) as unknown as typeof global.fetch;
+
+    const result = await fetchCatalog();
+    expect(result.nextOffset).toBeNull();
+    expect(result.total).toBe(1);
+    expect(result.items).toEqual(mockItems);
+  });
+
+  it('throws extracted server error message when request fails', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'Catalog database down' }),
+      text: async () => JSON.stringify({ error: 'Catalog database down' }),
+      headers: { get: () => 'application/json' },
+    }) as unknown as typeof global.fetch;
+
+    await expect(fetchCatalog()).rejects.toThrow('Catalog database down');
   });
 });
 
