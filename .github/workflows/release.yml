@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# release-please opens a "release PR" that accumulates conventional-commit
+# entries, then creates a GitHub Release + tag when that PR is merged. It only
+# needs the default GITHUB_TOKEN, which is read-only in this repo unless the
+# job asks for more.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # Manifest mode: all settings (bootstrap-sha, the app.json version bump)
+      # live in release-please-config.json, and the current version lives in
+      # .release-please-manifest.json.
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

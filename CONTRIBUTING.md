@@ -102,8 +102,9 @@ Every pull request (and every push to `main`) runs the `CI` workflow (`.github/w
 
 - **`typecheck`**: `npm ci`, `npm run validate-deps`, `npm run typecheck`
 - **`ci`**: `npm ci`, `npm run lint`, `npm test -- --ci`
+- **`bundle`**: `npm ci`, `npx expo export --platform android --platform ios --platform web`
 
-Both jobs are required checks on `main`: a PR can only merge when both are green and the branch is up to date with `main`.
+All three jobs are required checks on `main`: a PR can only merge when all are green and the branch is up to date with `main`. The `bundle` job name is stable and can be referenced in branch protection rules.
 
 ## Submitting a PR
 
