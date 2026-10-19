@@ -12,6 +12,7 @@ import * as Clipboard from "expo-clipboard";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { fetchResource, ResourceFetchError } from "../api/resources";
+import { fetchVerification, type VerificationDetails } from "../api/verification";
 import type { RootStackParamList } from "../navigation";
 import type { Resource } from "../types";
 import { getResourceTypeLabel } from "../types";
@@ -157,6 +158,60 @@ function createStyles(colors: ThemeColors) {
       fontSize: 14,
       fontWeight: "500",
     },
+    verificationSection: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+      marginTop: spacing.xs,
+    },
+    verificationHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: spacing.md,
+      backgroundColor: colors.neutralBg,
+    },
+    verificationHeaderTitle: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.text,
+    },
+    verificationChevron: {
+      fontSize: 14,
+      color: colors.textMuted,
+    },
+    verificationContent: {
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    verificationLoadingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    verificationLoadingText: {
+      color: colors.textMuted,
+      fontSize: 13,
+    },
+    verificationErrorContainer: {
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    retryButton: {
+      alignSelf: "flex-start",
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: colors.dangerBg,
+      borderRadius: 8,
+    },
+    retryText: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.danger,
+    },
   });
 }
 
@@ -170,6 +225,30 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isTransientError, setIsTransientError] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const [verificationDetails, setVerificationDetails] = useState<VerificationDetails | null>(null);
+  const [verificationLoading, setVerificationLoading] = useState(true);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [verificationExpanded, setVerificationExpanded] = useState(false);
+
+  const loadVerification = useCallback(async () => {
+    setVerificationLoading(true);
+    setVerificationError(null);
+    try {
+      const data = await fetchVerification(resourceId);
+      setVerificationDetails(data);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to load verification details";
+      setVerificationError(message);
+    } finally {
+      setVerificationLoading(false);
+    }
+  }, [resourceId]);
+
+  useEffect(() => {
+    void loadVerification();
+  }, [loadVerification]);
 
   const loadResource = useCallback(async () => {
     setLoading(true);
@@ -357,6 +436,97 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
         <View style={styles.infoRow}>
           <Text style={styles.label}>Type</Text>
           <Text style={typography.body}>{getResourceTypeLabel(resource.resourceType)}</Text>
+        </View>
+
+        <View style={styles.verificationSection}>
+          <Pressable
+            style={styles.verificationHeader}
+            onPress={() => setVerificationExpanded((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel="Verification"
+            accessibilityState={{ expanded: verificationExpanded }}
+            accessibilityHint="Toggles the verification details section"
+          >
+            <Text style={styles.verificationHeaderTitle}>Verification</Text>
+            <Text style={styles.verificationChevron}>
+              {verificationExpanded ? "▲" : "▼"}
+            </Text>
+          </Pressable>
+
+          {verificationExpanded ? (
+            <View
+              style={styles.verificationContent}
+              accessibilityRole={"region" as any}
+              accessibilityLabel="Verification details"
+            >
+              {verificationLoading ? (
+                <View
+                  style={styles.verificationLoadingRow}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="Loading verification details"
+                >
+                  <ActivityIndicator color={colors.primary} size="small" />
+                  <Text style={styles.verificationLoadingText}>
+                    Loading verification details…
+                  </Text>
+                </View>
+              ) : verificationError ? (
+                <View style={styles.verificationErrorContainer}>
+                  <Text style={styles.errorText} accessibilityRole="alert">
+                    {verificationError}
+                  </Text>
+                  <Pressable
+                    style={styles.retryButton}
+                    onPress={() => void loadVerification()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry loading verification"
+                  >
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : verificationDetails ? (
+                <View style={{ gap: spacing.sm }}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.label}>Status</Text>
+                    <Text
+                      style={typography.body}
+                      accessibilityLabel={`Verification Status: ${verificationDetails.status}`}
+                    >
+                      {verificationDetails.status}
+                    </Text>
+                  </View>
+
+                  {verificationDetails.reason || verificationDetails.notes ? (
+                    <View style={{ gap: 2 }}>
+                      <Text style={styles.label}>
+                        {verificationDetails.reason ? "Reason" : "Notes"}
+                      </Text>
+                      <Text style={typography.body}>
+                        {verificationDetails.reason ?? verificationDetails.notes}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {formatTimestamp(
+                    verificationDetails.verifiedAt ??
+                      verificationDetails.timestamp ??
+                      verificationDetails.createdAt
+                  ) ? (
+                    <View style={styles.infoRow}>
+                      <Text style={styles.label}>Timestamp</Text>
+                      <Text style={styles.metadata}>
+                        {formatTimestamp(
+                          verificationDetails.verifiedAt ??
+                            verificationDetails.timestamp ??
+                            verificationDetails.createdAt
+                        )}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.infoRow}>

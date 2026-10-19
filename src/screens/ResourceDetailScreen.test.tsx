@@ -4,6 +4,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { ActivityIndicator } from "react-native";
 
 import { fetchResource, ResourceFetchError } from "../api/resources";
+import { fetchVerification } from "../api/verification";
 import { shareResource } from "../utils/shareResource";
 import { openExternalUrl } from "../utils/stellarExpert";
 import { ResourceDetailScreen } from "./ResourceDetailScreen";
@@ -12,6 +13,9 @@ jest.mock("../api/resources", () => {
   const actual = jest.requireActual("../api/resources");
   return { ...actual, fetchResource: jest.fn() };
 });
+jest.mock("../api/verification", () => ({
+  fetchVerification: jest.fn(),
+}));
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn().mockResolvedValue(undefined) }));
 jest.mock("../utils/shareResource", () => ({ shareResource: jest.fn().mockResolvedValue("shared") }));
 jest.mock("../utils/stellarExpert", () => ({
@@ -38,6 +42,7 @@ jest.mock("../theme/ThemeProvider", () => {
 });
 
 const mockedFetchResource = fetchResource as jest.MockedFunction<typeof fetchResource>;
+const mockedFetchVerification = fetchVerification as jest.MockedFunction<typeof fetchVerification>;
 const mockedShareResource = shareResource as jest.MockedFunction<typeof shareResource>;
 const mockedOpenExternalUrl = openExternalUrl as jest.MockedFunction<typeof openExternalUrl>;
 
@@ -67,6 +72,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockedShareResource.mockResolvedValue("shared");
   mockedOpenExternalUrl.mockResolvedValue(undefined);
+  mockedFetchVerification.mockResolvedValue({
+    id: "resource-1",
+    status: "verified",
+    reason: "Resource complies with guidelines",
+    verifiedAt: "2025-06-15T12:30:00.000Z",
+  });
 });
 
 it("shows a spinner while the resource is loading", () => {
@@ -135,3 +146,94 @@ it("shows a toast when opening Stellar Expert fails", async () => {
 
   expect(await screen.findByText("Unable to open explorer")).toBeTruthy();
 });
+
+describe("collapsible verification section", () => {
+  it("can be expanded and collapsed with accessibility attributes", async () => {
+    mockedFetchResource.mockResolvedValue(resource);
+    const screen = renderScreen();
+
+    await screen.findByText(resource.title);
+    const header = screen.getByLabelText("Verification");
+    expect(header.props.accessibilityState).toEqual({ expanded: false });
+    expect(screen.queryByLabelText("Verification details")).toBeNull();
+
+    fireEvent.press(header);
+    expect(header.props.accessibilityState).toEqual({ expanded: true });
+    expect(screen.getByLabelText("Verification details")).toBeTruthy();
+
+    fireEvent.press(header);
+    expect(header.props.accessibilityState).toEqual({ expanded: false });
+    expect(screen.queryByLabelText("Verification details")).toBeNull();
+  });
+
+  it("shows loading state when verification details are fetching", async () => {
+    mockedFetchResource.mockResolvedValue(resource);
+    mockedFetchVerification.mockReturnValue(new Promise(() => {}));
+    const screen = renderScreen();
+
+    await screen.findByText(resource.title);
+    fireEvent.press(screen.getByLabelText("Verification"));
+
+    expect(screen.getByLabelText("Loading verification details")).toBeTruthy();
+    expect(screen.getByText("Loading verification details…")).toBeTruthy();
+  });
+
+  it("renders status, reason, and formatted timestamp when loaded", async () => {
+    mockedFetchResource.mockResolvedValue(resource);
+    mockedFetchVerification.mockResolvedValue({
+      id: "resource-1",
+      status: "verified",
+      reason: "Complies with network rules",
+      verifiedAt: "2025-07-20T10:00:00.000Z",
+    });
+    const screen = renderScreen();
+
+    await screen.findByText(resource.title);
+    fireEvent.press(screen.getByLabelText("Verification"));
+
+    expect(await screen.findByLabelText("Verification Status: verified")).toBeTruthy();
+    expect(screen.getByText("Complies with network rules")).toBeTruthy();
+    expect(screen.getByText("Timestamp")).toBeTruthy();
+    expect(screen.getByText(/Jul.*2025/)).toBeTruthy();
+  });
+
+  it("shows notes if reason is absent", async () => {
+    mockedFetchResource.mockResolvedValue(resource);
+    mockedFetchVerification.mockResolvedValue({
+      id: "resource-1",
+      status: "pending",
+      notes: "Manual review queued",
+    });
+    const screen = renderScreen();
+
+    await screen.findByText(resource.title);
+    fireEvent.press(screen.getByLabelText("Verification"));
+
+    expect(await screen.findByLabelText("Verification Status: pending")).toBeTruthy();
+    expect(screen.getByText("Notes")).toBeTruthy();
+    expect(screen.getByText("Manual review queued")).toBeTruthy();
+  });
+
+  it("shows error state with retry button and retries successfully", async () => {
+    mockedFetchResource.mockResolvedValue(resource);
+    mockedFetchVerification
+      .mockRejectedValueOnce(new Error("Unable to reach verification service"))
+      .mockResolvedValueOnce({
+        id: "resource-1",
+        status: "verified",
+        reason: "Valid",
+      });
+    const screen = renderScreen();
+
+    await screen.findByText(resource.title);
+    fireEvent.press(screen.getByLabelText("Verification"));
+
+    expect(await screen.findByText("Unable to reach verification service")).toBeTruthy();
+    const retryBtn = screen.getByLabelText("Retry loading verification");
+    fireEvent.press(retryBtn);
+
+    expect(await screen.findByLabelText("Verification Status: verified")).toBeTruthy();
+    expect(mockedFetchVerification).toHaveBeenCalledTimes(2);
+  });
+});
+
