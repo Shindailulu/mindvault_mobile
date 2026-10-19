@@ -1,4 +1,4 @@
-import { fetchVerification } from "./verification";
+import { fetchVerification, formatConfidence } from "./verification";
 import { getApiBaseUrl } from "./resources";
 
 describe("fetchVerification", () => {
@@ -10,9 +10,12 @@ describe("fetchVerification", () => {
 
   it("requests the verification endpoint with the URL-encoded resource ID", async () => {
     const mockDetails = {
+      resourceId: "res 1",
+      title: "Doc",
       status: "verified",
-      reason: "All checks passed successfully",
-      verifiedAt: "2026-10-18T14:00:00Z",
+      listed: true,
+      publishedAt: "2026-10-18T13:00:00Z",
+      verification: { isOriginal: true, confidence: 0.9, flags: [], checkedAt: "2026-10-18T14:00:00Z" },
     };
 
     const fetchMock = jest.fn().mockResolvedValue({
@@ -42,5 +45,13 @@ describe("fetchVerification", () => {
     await expect(fetchVerification("non-existent")).rejects.toThrow(
       "Verification result not found"
     );
+  });
+});
+
+describe("formatConfidence", () => {
+  it("accepts a 0-1 fraction or a 0-100 percentage", () => {
+    expect(formatConfidence(0.874)).toBe("87%");
+    expect(formatConfidence(1)).toBe("100%");
+    expect(formatConfidence(92)).toBe("92%");
   });
 });

@@ -12,7 +12,11 @@ import * as Clipboard from "expo-clipboard";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { fetchResource, ResourceFetchError } from "../api/resources";
-import { fetchVerification, type VerificationDetails } from "../api/verification";
+import {
+  fetchVerification,
+  formatConfidence,
+  type VerificationDetails,
+} from "../api/verification";
 import type { RootStackParamList } from "../navigation";
 import type { Resource } from "../types";
 import { getResourceTypeLabel } from "../types";
@@ -227,7 +231,7 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
   const [toast, setToast] = useState<string | null>(null);
 
   const [verificationDetails, setVerificationDetails] = useState<VerificationDetails | null>(null);
-  const [verificationLoading, setVerificationLoading] = useState(true);
+  const [verificationLoading, setVerificationLoading] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [verificationExpanded, setVerificationExpanded] = useState(false);
 
@@ -246,9 +250,14 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
     }
   }, [resourceId]);
 
-  useEffect(() => {
-    void loadVerification();
-  }, [loadVerification]);
+  // Fetched on first expand, so opening a resource doesn't cost an extra request.
+  function toggleVerification() {
+    const expanding = !verificationExpanded;
+    setVerificationExpanded(expanding);
+    if (expanding && !verificationDetails && !verificationLoading) {
+      void loadVerification();
+    }
+  }
 
   const loadResource = useCallback(async () => {
     setLoading(true);
@@ -441,7 +450,7 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
         <View style={styles.verificationSection}>
           <Pressable
             style={styles.verificationHeader}
-            onPress={() => setVerificationExpanded((prev) => !prev)}
+            onPress={toggleVerification}
             accessibilityRole="button"
             accessibilityLabel="Verification"
             accessibilityState={{ expanded: verificationExpanded }}
@@ -456,7 +465,6 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
           {verificationExpanded ? (
             <View
               style={styles.verificationContent}
-              accessibilityRole={"region" as any}
               accessibilityLabel="Verification details"
             >
               {verificationLoading ? (
@@ -496,33 +504,44 @@ export function ResourceDetailScreen({ route, navigation }: Props) {
                     </Text>
                   </View>
 
-                  {verificationDetails.reason || verificationDetails.notes ? (
-                    <View style={{ gap: 2 }}>
-                      <Text style={styles.label}>
-                        {verificationDetails.reason ? "Reason" : "Notes"}
-                      </Text>
-                      <Text style={typography.body}>
-                        {verificationDetails.reason ?? verificationDetails.notes}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {formatTimestamp(
-                    verificationDetails.verifiedAt ??
-                      verificationDetails.timestamp ??
-                      verificationDetails.createdAt
-                  ) ? (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.label}>Timestamp</Text>
-                      <Text style={styles.metadata}>
-                        {formatTimestamp(
-                          verificationDetails.verifiedAt ??
-                            verificationDetails.timestamp ??
-                            verificationDetails.createdAt
-                        )}
-                      </Text>
-                    </View>
-                  ) : null}
+                  {verificationDetails.verification ? (
+                    <>
+                      <View style={styles.infoRow}>
+                        <Text style={styles.label}>Originality</Text>
+                        <Text style={typography.body}>
+                          {verificationDetails.verification.isOriginal
+                            ? "Original"
+                            : "Possible copy"}
+                        </Text>
+                      </View>
+                      <View style={styles.infoRow}>
+                        <Text style={styles.label}>Confidence</Text>
+                        <Text style={typography.body}>
+                          {formatConfidence(verificationDetails.verification.confidence)}
+                        </Text>
+                      </View>
+                      {verificationDetails.verification.flags.length > 0 ? (
+                        <View style={{ gap: 2 }}>
+                          <Text style={styles.label}>Notes</Text>
+                          {verificationDetails.verification.flags.map((flag) => (
+                            <Text key={flag} style={typography.body}>
+                              • {flag}
+                            </Text>
+                          ))}
+                        </View>
+                      ) : null}
+                      {formatTimestamp(verificationDetails.verification.checkedAt) ? (
+                        <View style={styles.infoRow}>
+                          <Text style={styles.label}>Checked</Text>
+                          <Text style={styles.metadata}>
+                            {formatTimestamp(verificationDetails.verification.checkedAt)}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={styles.metadata}>No AI check has run for this resource yet.</Text>
+                  )}
                 </View>
               ) : null}
             </View>
