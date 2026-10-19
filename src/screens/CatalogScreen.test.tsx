@@ -354,5 +354,42 @@ describe("CatalogScreen infinite scroll pagination", () => {
     expect(screen.queryByText("Item 1")).toBeNull();
     expect(screen.getByText("Showing 1 of 1 resource")).toBeTruthy();
   });
+
+  it("drops a next page that arrives after the filters changed", async () => {
+    let resolveStalePage: (value: unknown) => void = () => {};
+    mockedFetchCatalog
+      .mockResolvedValueOnce({
+        items: [makeResource("r1", "Item 1")],
+        total: 10,
+        nextOffset: 1,
+      })
+      .mockReturnValueOnce(new Promise((resolve) => (resolveStalePage = resolve)))
+      .mockResolvedValueOnce({
+        items: [makeResource("r9", "Searched Item")],
+        total: 1,
+        nextOffset: null,
+      });
+
+    const screen = renderCatalog();
+    await waitFor(() => expect(screen.getByText("Item 1")).toBeTruthy());
+
+    // Start loading page 2, then search before it arrives.
+    const flatList = screen.UNSAFE_getByType(require("react-native").FlatList);
+    await act(async () => {
+      flatList.props.onEndReached();
+    });
+    fireEvent.changeText(screen.getByLabelText("Search resources"), "search term");
+    act(() => {
+      jest.advanceTimersByTime(350);
+    });
+    await waitFor(() => expect(screen.getByText("Searched Item")).toBeTruthy());
+
+    await act(async () => {
+      resolveStalePage({ items: [makeResource("r2", "Stale Page Item")], total: 10, nextOffset: 2 });
+    });
+
+    expect(screen.queryByText("Stale Page Item")).toBeNull();
+    expect(screen.getByText("Showing 1 of 1 resource")).toBeTruthy();
+  });
 });
 

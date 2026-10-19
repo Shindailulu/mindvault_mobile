@@ -522,6 +522,10 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
       return;
     }
 
+    // A filter change, search or refresh starts a new first-page request and
+    // bumps the id; a next page that arrives after that belongs to the old
+    // results and must not be appended.
+    const requestId = requestIdRef.current;
     setLoadingMore(true);
     setLoadMoreError(null);
 
@@ -530,6 +534,7 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
         ...currentFilters,
         offset: nextOffset,
       });
+      if (requestId !== requestIdRef.current) return;
 
       const newItems = Array.isArray(response) ? response : (response?.items ?? []);
       const total = Array.isArray(response)
@@ -550,6 +555,7 @@ export function CatalogScreen({ navigation }: CatalogScreenProps) {
       }
       setNextOffset(next);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       const message =
         err instanceof Error ? err.message : "Failed to load more resources.";
       setLoadMoreError(message);
